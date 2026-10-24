@@ -15,6 +15,7 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -23,6 +24,9 @@ import java.util.List;
 @Entity
 @Table(name = "meetings")
 public class Meeting {
+
+    /** Enforced on create (request validation) and when adding participants one at a time. */
+    public static final int MAX_PARTICIPANTS = 100;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -44,9 +48,13 @@ public class Meeting {
     @JoinColumn(name = "created_by", nullable = false)
     private User createdBy;
 
-    /** Owned by the meeting: participants are created, saved and deleted together with it. */
+    /**
+     * Owned by the meeting: participants are created, saved and deleted together with it. Batch fetching
+     * loads the participants of a whole page of meetings in one query instead of one query per meeting.
+     */
     @OneToMany(mappedBy = "meeting", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("createdAt ASC, id ASC")
+    @BatchSize(size = 50)
     private List<Participant> participants = new ArrayList<>();
 
     @Column(name = "created_at", nullable = false, updatable = false)

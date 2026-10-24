@@ -2,8 +2,12 @@ package com.meetingplanner.meeting;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.meetingplanner.IntegrationTestSupport;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.util.HashMap;
@@ -25,11 +29,45 @@ class MeetingIntegrationTest extends IntegrationTestSupport {
     private static final String START = "2026-11-01T09:00:00Z";
     private static final String END = "2026-11-01T10:00:00Z";
 
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
     private String ownerToken;
 
     @BeforeEach
     void setUpOwner() throws Exception {
         ownerToken = tokenFor("Olivia", "olivia@example.com");
+    }
+
+    @Test
+    void listingDoesNotQueryParticipantsOncePerMeeting() throws Exception {
+        createMeetingsWithParticipants(2);
+        long statementsForTwo = statementsToListMeetings();
+
+        createMeetingsWithParticipants(10);
+        long statementsForTwelve = statementsToListMeetings();
+
+        assertThat(statementsForTwelve).isEqualTo(statementsForTwo);
+    }
+
+    private void createMeetingsWithParticipants(int count) throws Exception {
+        for (int i = 0; i < count; i++) {
+            mockMvc.perform(withToken(post("/api/meetings"), ownerToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(meetingBody("Meeting", START, END, List.of(
+                                    Map.of("name", "Bob", "email", "bob@example.com"),
+                                    Map.of("name", "Carol", "email", "carol@example.com"))))))
+                    .andExpect(status().isCreated());
+        }
+    }
+
+    private long statementsToListMeetings() throws Exception {
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        mockMvc.perform(withToken(get("/api/meetings").param("size", "50"), ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].participantCount").value(2));
+        return statistics.getPrepareStatementCount();
     }
 
     @Test

@@ -28,6 +28,7 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -119,15 +120,10 @@ public class MeetingService {
             default -> meetingRepository.findAll(filtered.and(upcomingFirst(now)), PageRequest.of(page, size));
         };
 
-        MeetingPageResponse.Counts counts = new MeetingPageResponse.Counts(
-                meetingRepository.count(visible),
-                meetingRepository.count(visible.and(notEndedAt(now))),
-                meetingRepository.count(visible.and(endedAt(now))),
-                meetingRepository.count(visible.and(ownedBy(userId))),
-                meetingRepository.count(visible.and(notOwnedBy(userId))));
         return new MeetingPageResponse(
                 result.getContent().stream().map(m -> MeetingSummaryResponse.from(m, userId, now)).toList(),
-                result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages(), counts);
+                result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages(),
+                countByTab(visible, userId, now));
     }
 
     /**
@@ -149,33 +145,54 @@ public class MeetingService {
         Long userId = currentUser.id();
         Specification<Meeting> visible = accessibleTo(userId, currentUser.email());
         Instant thirtyDaysAgo = now.minus(30, ChronoUnit.DAYS);
-
-        YearMonth current = YearMonth.from(now.atZone(zone));
-        YearMonth first = current.minusMonths(months - 1L);
-        Map<YearMonth, long[]> buckets = new LinkedHashMap<>();
-        for (YearMonth m = first; !m.isAfter(current); m = m.plusMonths(1)) {
-            buckets.put(m, new long[3]); // organized, invited, participants
-        }
-        Instant from = first.atDay(1).atStartOfDay(zone).toInstant();
-        Instant to = current.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant();
-        for (Meeting meeting : meetingRepository.findAll(visible.and(startsBetween(from, to)))) {
-            long[] bucket = buckets.get(YearMonth.from(meeting.getStartTime().atZone(zone)));
-            bucket[meeting.isOwnedBy(userId) ? 0 : 1]++;
-            bucket[2] += meeting.getParticipants().size();
-        }
+        MeetingPageResponse.Counts counts = countByTab(visible, userId, now);
 
         return new MeetingStatsResponse(
+                counts.all(), counts.upcoming(), counts.completed(), counts.organized(), counts.invited(),
+                meetingRepository.count(visible.and(startsBetween(thirtyDaysAgo, now))),
+                meetingRepository.count(visible.and(startsBetween(now.minus(60, ChronoUnit.DAYS), thirtyDaysAgo))),
+                countByMonth(visible, userId, YearMonth.from(now.atZone(zone)), months, zone));
+    }
+
+    /** Number of meetings in each filter tab; shared by the list's tab badges and the dashboard totals. */
+    private MeetingPageResponse.Counts countByTab(Specification<Meeting> visible, Long userId, Instant now) {
+        return new MeetingPageResponse.Counts(
                 meetingRepository.count(visible),
                 meetingRepository.count(visible.and(notEndedAt(now))),
                 meetingRepository.count(visible.and(endedAt(now))),
                 meetingRepository.count(visible.and(ownedBy(userId))),
-                meetingRepository.count(visible.and(notOwnedBy(userId))),
-                meetingRepository.count(visible.and(startsBetween(thirtyDaysAgo, now))),
-                meetingRepository.count(visible.and(startsBetween(now.minus(60, ChronoUnit.DAYS), thirtyDaysAgo))),
-                buckets.entrySet().stream()
-                        .map(e -> new MeetingStatsResponse.MonthCount(
-                                e.getKey().toString(), e.getValue()[0], e.getValue()[1], e.getValue()[2]))
-                        .toList());
+                meetingRepository.count(visible.and(notOwnedBy(userId))));
+    }
+
+    /** Meetings starting in each of the {@code months} calendar months ending with {@code current}, oldest first. */
+    private List<MeetingStatsResponse.MonthCount> countByMonth(
+            Specification<Meeting> visible, Long userId, YearMonth current, int months, ZoneId zone) {
+        YearMonth first = current.minusMonths(months - 1L);
+        Map<YearMonth, MonthTally> tallies = new LinkedHashMap<>();
+        for (YearMonth month = first; !month.isAfter(current); month = month.plusMonths(1)) {
+            tallies.put(month, new MonthTally());
+        }
+        Instant from = first.atDay(1).atStartOfDay(zone).toInstant();
+        Instant to = current.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant();
+        for (Meeting meeting : meetingRepository.findAll(visible.and(startsBetween(from, to)))) {
+            MonthTally tally = tallies.get(YearMonth.from(meeting.getStartTime().atZone(zone)));
+            if (meeting.isOwnedBy(userId)) {
+                tally.organized++;
+            } else {
+                tally.invited++;
+            }
+            tally.participants += meeting.getParticipants().size();
+        }
+        return tallies.entrySet().stream()
+                .map(e -> new MeetingStatsResponse.MonthCount(
+                        e.getKey().toString(), e.getValue().organized, e.getValue().invited, e.getValue().participants))
+                .toList();
+    }
+
+    private static final class MonthTally {
+        private long organized;
+        private long invited;
+        private long participants;
     }
 
     private static Specification<Meeting> filterSpec(MeetingFilter filter, Long userId, Instant now) {
@@ -212,6 +229,9 @@ public class MeetingService {
         String email = Emails.normalize(request.email());
         if (meeting.hasParticipantEmail(email)) {
             throw ApiException.conflict("This person is already a participant");
+        }
+        if (meeting.getParticipants().size() >= Meeting.MAX_PARTICIPANTS) {
+            throw ApiException.badRequest("A meeting can have at most " + Meeting.MAX_PARTICIPANTS + " participants");
         }
         Participant participant = meeting.addParticipant(request.name().trim(), email);
         // Flush (not merge) so this exact instance is persisted via cascade and receives its generated id.

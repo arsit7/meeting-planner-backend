@@ -1,5 +1,6 @@
 package com.meetingplanner.meeting.dto;
 
+import com.meetingplanner.meeting.Meeting;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -23,7 +24,7 @@ public record CreateMeetingRequest(
         @NotNull(message = "End time is required")
         Instant endTime,
 
-        @Size(max = 100, message = "A meeting can have at most 100 participants")
+        @Size(max = Meeting.MAX_PARTICIPANTS, message = "A meeting can have at most {max} participants")
         List<@Valid @NotNull ParticipantRequest> participants) implements TimeRange {
 
     public List<ParticipantRequest> participantsOrEmpty() {

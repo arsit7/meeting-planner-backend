@@ -134,6 +134,20 @@ class MeetingServiceTest {
     }
 
     @Test
+    void addingBeyondTheParticipantLimitIsRejected() {
+        Meeting meeting = meeting(10L);
+        for (int i = 0; i < Meeting.MAX_PARTICIPANTS; i++) {
+            meeting.addParticipant("Guest " + i, "guest" + i + "@example.com");
+        }
+        when(meetingRepository.findById(10L)).thenReturn(Optional.of(meeting));
+
+        assertThatThrownBy(() -> service.addParticipant(ownerAuth, 10L, new ParticipantRequest("Eve", "eve@example.com")))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("A meeting can have at most 100 participants");
+        assertThat(meeting.getParticipants()).hasSize(Meeting.MAX_PARTICIPANTS);
+    }
+
+    @Test
     void removingUnknownParticipantIsNotFound() {
         Meeting meeting = meeting(10L);
         when(meetingRepository.findById(10L)).thenReturn(Optional.of(meeting));
