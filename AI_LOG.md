@@ -125,7 +125,7 @@ Problems found during verification and fixed:
 Verification actually performed (end of session 2):
 
 - Backend: **73 tests, 0 failures** after a clean recompile of all classes (`BUILD SUCCESS`).
-- Frontend: **74 tests in 15 files, all passing**; `npm run build` succeeds.
+- Frontend: **74 tests in 14 files, all passing**; `npm run build` succeeds.
 - The packaged backend jar was started and checked with `curl` (`401` without a token, `400` with field
   errors for invalid signup).
 - Screens were checked in headless Chrome at desktop and phone widths, using a scratch build with mock
