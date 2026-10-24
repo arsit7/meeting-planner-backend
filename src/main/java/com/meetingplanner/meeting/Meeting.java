@@ -94,6 +94,11 @@ public class Meeting {
         return participants.stream().anyMatch(p -> p.getEmail().equals(email));
     }
 
+    /** A meeting is complete from its end time onwards. */
+    public boolean hasEnded(Instant now) {
+        return !endTime.isAfter(now);
+    }
+
     public boolean isOwnedBy(Long userId) {
         return createdBy.getId().equals(userId);
     }

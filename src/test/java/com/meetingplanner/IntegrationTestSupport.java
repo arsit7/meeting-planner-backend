@@ -8,22 +8,43 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Base class for full-stack API tests against an isolated in-memory H2 database.
+ * Base class for full-stack API tests against an isolated in-memory H2 database. Business rules see a fixed
+ * clock ({@link #TEST_NOW}), so meeting dates in tests stay upcoming or ended regardless of when they run.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(IntegrationTestSupport.FixedClockConfig.class)
 public abstract class IntegrationTestSupport {
+
+    /** "Now" for the meeting rules in every API test. */
+    protected static final Instant TEST_NOW = Instant.parse("2026-10-15T12:00:00Z");
+
+    @TestConfiguration
+    static class FixedClockConfig {
+        @Bean
+        @Primary
+        Clock fixedTestClock() {
+            return Clock.fixed(TEST_NOW, ZoneOffset.UTC);
+        }
+    }
 
     @Autowired
     protected MockMvc mockMvc;

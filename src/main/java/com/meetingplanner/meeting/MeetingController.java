@@ -1,8 +1,9 @@
 package com.meetingplanner.meeting;
 
 import com.meetingplanner.meeting.dto.CreateMeetingRequest;
+import com.meetingplanner.meeting.dto.MeetingPageResponse;
 import com.meetingplanner.meeting.dto.MeetingResponse;
-import com.meetingplanner.meeting.dto.MeetingSummaryResponse;
+import com.meetingplanner.meeting.dto.MeetingStatsResponse;
 import com.meetingplanner.meeting.dto.ParticipantRequest;
 import com.meetingplanner.meeting.dto.ParticipantResponse;
 import com.meetingplanner.meeting.dto.UpdateMeetingRequest;
@@ -17,10 +18,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/meetings")
@@ -38,9 +38,25 @@ public class MeetingController {
         return meetingService.create(user, request);
     }
 
+    /**
+     * Paged meeting list. {@code q} searches titles and organizer names; {@code filter} is one of all,
+     * upcoming, completed, organized, invited; {@code page} is zero-based and {@code size} is 1–50.
+     */
     @GetMapping
-    public List<MeetingSummaryResponse> list(@CurrentUser AuthUser user) {
-        return meetingService.listAccessible(user);
+    public MeetingPageResponse list(@CurrentUser AuthUser user,
+                                    @RequestParam(defaultValue = "") String q,
+                                    @RequestParam(defaultValue = "all") String filter,
+                                    @RequestParam(defaultValue = "0") int page,
+                                    @RequestParam(defaultValue = "10") int size) {
+        return meetingService.search(user, q, filter, page, size);
+    }
+
+    /** Dashboard totals and meetings per month; {@code zone} is an IANA time zone such as Asia/Kolkata. */
+    @GetMapping("/stats")
+    public MeetingStatsResponse stats(@CurrentUser AuthUser user,
+                                      @RequestParam(defaultValue = "UTC") String zone,
+                                      @RequestParam(defaultValue = "6") int months) {
+        return meetingService.stats(user, zone, months);
     }
 
     @GetMapping("/{id}")

@@ -13,11 +13,15 @@ The React frontend lives in the companion repository **`Meeting Planner-front-en
 - Signup and login with BCrypt-hashed passwords and signed JWT (HS256) bearer tokens
 - Profile endpoint and avatar upload (PNG/JPEG/GIF/WebP, max 2 MB, checked by content signature)
 - Meetings: create (optionally with participants in the same request), list, view, update, delete
+- Server-side search, filter tabs and pagination for the meeting list, plus a stats endpoint for the
+  dashboard, so the client never downloads every meeting
 - Participants: add and remove; unique per meeting (case-insensitive e-mail)
 - Authorization: only the organizer can modify a meeting; invited users (participant e-mail matches their
   account e-mail) get read-only access; everyone else gets `404`
+- Completed meetings are locked: once a meeting's end time has passed, its details and participants can't
+  be changed (`409`). Responses carry a `completed` flag
 - Consistent JSON error format with field-level validation messages
-- 58 automated tests (unit + integration)
+- 69 automated tests (unit + integration)
 
 ## Technology stack
 
@@ -82,7 +86,8 @@ All bodies are JSON except the avatar upload (`multipart/form-data`, field name 
 | POST   | `/api/users/me/avatar`                            | Yes  | Upload/replace profile image                  | 200     |
 | GET    | `/api/users/me/avatar`                            | Yes  | Download current profile image                | 200     |
 | POST   | `/api/meetings`                                   | Yes  | Create meeting (optional `participants` list) | 201     |
-| GET    | `/api/meetings`                                   | Yes  | Meetings you organize or are invited to       | 200     |
+| GET    | `/api/meetings`                                   | Yes  | One page of meetings you organize or are invited to (search, filter, paging below) | 200 |
+| GET    | `/api/meetings/stats`                             | Yes  | Dashboard totals and meetings per month       | 200     |
 | GET    | `/api/meetings/{id}`                              | Yes  | Meeting details (organizer or invitee)        | 200     |
 | PUT    | `/api/meetings/{id}`                              | Yes  | Update title/description/times (organizer)    | 200     |
 | DELETE | `/api/meetings/{id}`                              | Yes  | Delete meeting (organizer)                    | 204     |
@@ -105,6 +110,39 @@ Content-Type: application/json
 }
 ```
 
+**Listing, searching and paging meetings**
+
+`GET /api/meetings?q=sprint&filter=upcoming&page=0&size=10`
+
+| Parameter | Default | Meaning                                                                                   |
+|-----------|---------|-------------------------------------------------------------------------------------------|
+| `q`       | (empty) | Case-insensitive text matched against the title or the organizer's name (max 100 chars)   |
+| `filter`  | `all`   | `all`, `upcoming` (not ended), `completed` (ended), `organized` (yours), `invited`        |
+| `page`    | `0`     | Zero-based page number                                                                     |
+| `size`    | `10`    | Page size, 1–50                                                                            |
+
+`upcoming` is ordered soonest first, `completed` most recent first, and the other tabs show upcoming
+meetings before completed ones. Invalid values return `400`. The response:
+
+```json
+{
+  "content": [{ "id": 7, "title": "Sprint planning", "startTime": "…", "endTime": "…",
+                "organizerName": "Olivia", "owner": true, "completed": false, "participantCount": 3 }],
+  "page": 0, "size": 10, "totalElements": 23, "totalPages": 3,
+  "counts": { "all": 23, "upcoming": 5, "completed": 18, "organized": 20, "invited": 3 }
+}
+```
+
+`counts` gives the size of every tab for the current search, so the client can label all its tabs from
+one request.
+
+**Dashboard stats**
+
+`GET /api/meetings/stats?zone=Asia/Kolkata&months=6` returns `total`, `upcoming`, `completed`, `organized`,
+`invited`, `last30Days`, `previous30Days` and `months` (oldest first, `[{ "month": "2026-10", "organized",
+"invited", "participants" }]`). Months are calendar months in `zone` (an IANA time zone, default `UTC`);
+`months` is 1–24 (default 6).
+
 **Error format** (all errors):
 
 ```json
@@ -123,7 +161,7 @@ Content-Type: application/json
 | 401    | Missing/invalid/expired token, wrong login credentials                             |
 | 403    | Authenticated invitee trying to modify a meeting they don't organize              |
 | 404    | Meeting/participant not found **or** not visible to you                           |
-| 409    | E-mail already registered; participant already on the meeting                     |
+| 409    | E-mail already registered; participant already on the meeting; changing a meeting that has ended |
 | 413    | Avatar larger than 2 MB                                                           |
 | 415    | Avatar is not a PNG/JPEG/GIF/WebP (checked by declared type **and** file bytes)   |
 
@@ -148,6 +186,10 @@ Content-Type: application/json
    - **organizer:** full access
    - **invitee** (account e-mail matches a participant e-mail): read-only. Modifying returns `403`.
    - **anyone else:** `404`, so the existence of other users' meetings is never revealed.
+   - **completed meetings** (end time reached, judged by the server clock): `PUT` and adding or removing
+     participants return `409 This meeting has already ended, so it can no longer be changed`, even for the
+     organizer. The access checks above run first, so an invitee still gets `403`. `GET` responses include
+     `completed: true`.
 
 The session is stateless: no server sessions or cookies. CSRF protection is disabled because tokens are
 sent in the `Authorization` header, not in cookies. Logging out is client-side (the frontend drops the
@@ -221,10 +263,10 @@ touch `./data` and don't need `JWT_SECRET` set.
 | `MeetingServiceTest`        | Unit        | Creation, duplicate participants, owner/invitee/stranger rules            |
 | `AvatarStorageServiceTest`  | Unit        | Valid upload, bad type, spoofed bytes, oversize, empty, path traversal    |
 | `AuthIntegrationTest`       | Integration | Signup/login over HTTP, BCrypt hash in DB, 401 on missing/forged/expired token, CORS, security headers, H2 console off by default |
-| `MeetingIntegrationTest`    | Integration | CRUD, validation (blank title, end ≤ start, bad e-mail), participants, ownership enforcement |
+| `MeetingIntegrationTest`    | Integration | CRUD, validation (blank title, end ≤ start, bad e-mail), participants, ownership enforcement, completed meetings locked, paging, search, filters, stats |
 | `AvatarIntegrationTest`     | Integration | Upload + download, invalid type, oversize, auth required                  |
 
-Last run: **58 tests, 0 failures, 0 errors** (`BUILD SUCCESS`).
+Last run: **69 tests, 0 failures, 0 errors** (`BUILD SUCCESS`).
 
 ## H2 database behavior
 
@@ -281,9 +323,14 @@ Last run: **58 tests, 0 failures, 0 errors** (`BUILD SUCCESS`).
   list can view those meetings read-only. This felt more useful than "creator only" and costs one join.
 - **Updating a meeting** (`PUT`) replaces title, description and times. Participants are managed only
   through their own endpoints, so a stale edit form can't wipe the participant list.
-- **Meeting deletion** is included and allowed for the organizer only. It cascades to participants.
+- **Meeting deletion** is included and allowed for the organizer only. It cascades to participants. It is
+  still allowed after a meeting has ended, so organizers can clean up old meetings.
+- **Completed meetings are read-only.** A meeting is complete from the instant its end time passes
+  (`end <= now`); an ongoing meeting can still be edited. "Now" comes from an injectable `Clock` bean
+  (`ClockConfig`), which tests replace with a fixed clock.
 - **Start times in the past are allowed** (for example, to record a meeting that already happened). Only
-  `end > start` is enforced.
+  `end > start` is enforced. Such a meeting is complete as soon as it is saved, so include its participants
+  in the create request.
 - **404 rather than 403 for strangers**, so meeting IDs can't be probed.
 - **Email invitations, calendar sync and video calls are out of scope**, as specified.
 - Login does not normalize Unicode in passwords. The maximum password length is 72 because BCrypt ignores

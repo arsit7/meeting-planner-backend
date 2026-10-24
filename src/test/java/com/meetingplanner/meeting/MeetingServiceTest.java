@@ -16,7 +16,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,6 +34,8 @@ class MeetingServiceTest {
 
     private static final Instant START = Instant.parse("2026-11-01T09:00:00Z");
     private static final Instant END = Instant.parse("2026-11-01T10:00:00Z");
+    /** "Now" for every test: before START, so meeting(...) is upcoming unless a test says otherwise. */
+    private static final Instant NOW = Instant.parse("2026-10-15T12:00:00Z");
 
     @Mock
     private MeetingRepository meetingRepository;
@@ -45,7 +49,7 @@ class MeetingServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new MeetingService(meetingRepository, userRepository);
+        service = new MeetingService(meetingRepository, userRepository, Clock.fixed(NOW, ZoneOffset.UTC));
         owner = withId(new User("Olivia", "olivia@example.com", "hash"), 1L);
         ownerAuth = new AuthUser(1L, "olivia@example.com");
         strangerAuth = new AuthUser(2L, "stranger@example.com");
@@ -138,6 +142,68 @@ class MeetingServiceTest {
     }
 
     @Test
+    void endedMeetingIsReportedCompletedAndCannotBeChanged() {
+        Meeting meeting = endedMeeting(10L);
+        meeting.addParticipant("Bob", "bob@example.com");
+        Long bobId = 5L;
+        ReflectionTestUtils.setField(meeting.getParticipants().get(0), "id", bobId);
+        when(meetingRepository.findById(10L)).thenReturn(Optional.of(meeting));
+
+        assertThat(service.get(ownerAuth, 10L).completed()).isTrue();
+        assertStatus(() -> service.update(ownerAuth, 10L, new UpdateMeetingRequest("Renamed", null, START, END)),
+                HttpStatus.CONFLICT);
+        assertStatus(() -> service.addParticipant(ownerAuth, 10L, new ParticipantRequest("Eve", "eve@example.com")),
+                HttpStatus.CONFLICT);
+        assertStatus(() -> service.removeParticipant(ownerAuth, 10L, bobId), HttpStatus.CONFLICT);
+
+        assertThat(meeting.getTitle()).isEqualTo("Planning");
+        assertThat(meeting.getParticipants()).hasSize(1);
+        verify(meetingRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void meetingIsCompleteFromItsExactEndTime() {
+        Meeting meeting = new Meeting("Standup", null, NOW.minusSeconds(3600), NOW, owner);
+        ReflectionTestUtils.setField(meeting, "id", 11L);
+        when(meetingRepository.findById(11L)).thenReturn(Optional.of(meeting));
+
+        assertThat(service.get(ownerAuth, 11L).completed()).isTrue();
+        assertStatus(() -> service.addParticipant(ownerAuth, 11L, new ParticipantRequest("Eve", "eve@example.com")),
+                HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void ongoingMeetingCanStillBeChanged() {
+        Meeting meeting = new Meeting("Workshop", null, NOW.minusSeconds(1800), NOW.plusSeconds(1800), owner);
+        ReflectionTestUtils.setField(meeting, "id", 12L);
+        when(meetingRepository.findById(12L)).thenReturn(Optional.of(meeting));
+
+        assertThat(service.get(ownerAuth, 12L).completed()).isFalse();
+        assertThat(service.addParticipant(ownerAuth, 12L, new ParticipantRequest("Eve", "eve@example.com")).email())
+                .isEqualTo("eve@example.com");
+    }
+
+    @Test
+    void organizerCanStillDeleteAnEndedMeeting() {
+        Meeting meeting = endedMeeting(10L);
+        when(meetingRepository.findById(10L)).thenReturn(Optional.of(meeting));
+
+        service.delete(ownerAuth, 10L);
+
+        verify(meetingRepository).delete(meeting);
+    }
+
+    @Test
+    void inviteeOfEndedMeetingStillGetsForbiddenRatherThanConflict() {
+        Meeting meeting = endedMeeting(10L);
+        meeting.addParticipant("Pat", "pat@example.com");
+        when(meetingRepository.findById(10L)).thenReturn(Optional.of(meeting));
+
+        assertStatus(() -> service.update(new AuthUser(3L, "pat@example.com"), 10L,
+                new UpdateMeetingRequest("Hijack", null, START, END)), HttpStatus.FORBIDDEN);
+    }
+
+    @Test
     void missingMeetingIsNotFound() {
         when(meetingRepository.findById(99L)).thenReturn(Optional.empty());
 
@@ -146,6 +212,12 @@ class MeetingServiceTest {
 
     private Meeting meeting(Long id) {
         Meeting meeting = new Meeting("Planning", null, START, END, owner);
+        ReflectionTestUtils.setField(meeting, "id", id);
+        return meeting;
+    }
+
+    private Meeting endedMeeting(Long id) {
+        Meeting meeting = new Meeting("Planning", null, NOW.minusSeconds(7200), NOW.minusSeconds(3600), owner);
         ReflectionTestUtils.setField(meeting, "id", id);
         return meeting;
     }
