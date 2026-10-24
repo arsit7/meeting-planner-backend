@@ -15,13 +15,14 @@ The React frontend lives in the companion repository **`Meeting Planner-front-en
 - Meetings: create (optionally with participants in the same request), list, view, update, delete
 - Server-side search, filter tabs and pagination for the meeting list, plus a stats endpoint for the
   dashboard, so the client never downloads every meeting
-- Participants: add and remove; unique per meeting (case-insensitive e-mail)
+- Participants: add and remove; unique per meeting (case-insensitive e-mail); at most 100 per meeting,
+  enforced both on create and when adding one at a time
 - Authorization: only the organizer can modify a meeting; invited users (participant e-mail matches their
   account e-mail) get read-only access; everyone else gets `404`
 - Completed meetings are locked: once a meeting's end time has passed, its details and participants can't
   be changed (`409`). Responses carry a `completed` flag
 - Consistent JSON error format with field-level validation messages
-- 69 automated tests (unit + integration)
+- 73 automated tests (unit + integration)
 
 ## Technology stack
 
@@ -170,8 +171,8 @@ one request.
 1. **Signup** validates the input, lower-cases the e-mail, rejects duplicates (`409`), and stores
    `BCrypt(password)` (strength 10). The plaintext password is never stored or logged.
 2. **Login** looks up the user by e-mail and checks the password with BCrypt. Unknown e-mail and wrong
-   password return the same `401 Invalid email or password`, so attackers can't use the response to
-   discover which e-mails have accounts.
+   password return the same `401 Invalid email or password`, and an unknown e-mail is still checked
+   against a dummy BCrypt hash, so neither the response nor its timing reveals which e-mails have accounts.
 3. Both return `{ token, tokenType: "Bearer", expiresInSeconds, user }`. The token is an HS256 JWT with
    `sub` = user id, `iss` = `meeting-planner`, `iat` and `exp`. The default lifetime is **60 minutes**
    (`app.jwt.expiration-minutes`).
@@ -258,15 +259,15 @@ touch `./data` and don't need `JWT_SECRET` set.
 
 | Test class                  | Type        | Covers                                                                    |
 |-----------------------------|-------------|---------------------------------------------------------------------------|
-| `AuthServiceTest`           | Unit        | Signup hashing with BCrypt, duplicate e-mail, login success/failure       |
+| `AuthServiceTest`           | Unit        | Signup hashing with BCrypt, duplicate e-mail, login success/failure, constant-cost check for unknown e-mails |
 | `JwtServiceTest`            | Unit        | Valid/expired/tampered/foreign-key tokens, missing or short secret        |
-| `MeetingServiceTest`        | Unit        | Creation, duplicate participants, owner/invitee/stranger rules            |
+| `MeetingServiceTest`        | Unit        | Creation, duplicate participants, owner/invitee/stranger rules, participant limit, completed-meeting lock |
 | `AvatarStorageServiceTest`  | Unit        | Valid upload, bad type, spoofed bytes, oversize, empty, path traversal    |
 | `AuthIntegrationTest`       | Integration | Signup/login over HTTP, BCrypt hash in DB, 401 on missing/forged/expired token, CORS, security headers, H2 console off by default |
-| `MeetingIntegrationTest`    | Integration | CRUD, validation (blank title, end ≤ start, bad e-mail), participants, ownership enforcement, completed meetings locked, paging, search, filters, stats |
-| `AvatarIntegrationTest`     | Integration | Upload + download, invalid type, oversize, auth required                  |
+| `MeetingIntegrationTest`    | Integration | CRUD, validation (blank title, end ≤ start, bad e-mail), participants, ownership enforcement, completed meetings locked, paging, search, filters, stats, no N+1 queries |
+| `AvatarIntegrationTest`     | Integration | Upload + download, old file removed after replacement, invalid type, oversize, auth required |
 
-Last run: **69 tests, 0 failures, 0 errors** (`BUILD SUCCESS`).
+Last run: **73 tests, 0 failures, 0 errors** (`BUILD SUCCESS`).
 
 ## H2 database behavior
 
@@ -340,19 +341,23 @@ Last run: **69 tests, 0 failures, 0 errors** (`BUILD SUCCESS`).
 
 - No refresh tokens and no server-side token revocation. Logout only discards the token on the client.
 - No rate limiting on login and signup (brute-force protection).
-- No pagination on `GET /api/meetings`.
+- No endpoints to change your name, e-mail or password, or to delete your account.
+- Users can only download their own avatar, so other people are shown by initials.
 - No overlap detection for meetings, no time-zone field per meeting (times are UTC instants), and no
   recurring meetings.
-- `ddl-auto=update` is convenient for a prototype. A real deployment would use Flyway or Liquibase
-  migrations.
+- A list request runs about 9 queries (the page, its count and five tab counts). Fine at this scale; a
+  single grouped count query would be the next step.
+- H2 in file mode allows one running backend at a time. `ddl-auto=update` is convenient for a prototype; a
+  real deployment would use Flyway or Liquibase migrations and PostgreSQL or MySQL.
 - Avatar files are validated by signature only, not decoded or re-encoded, so image metadata (EXIF) is
-  kept.
+  kept, and they live on the local disk.
 
 ## Future improvements
 
-Refresh tokens with rotation and revocation, login rate limiting or lockout, pagination and search,
-e-mail invitations with RSVP, linking participants to registered users, calendar (ICS) export, image
-re-encoding/resizing, OpenAPI/Swagger docs, Flyway migrations, Docker Compose, and CI.
+Refresh tokens with rotation and revocation, login rate limiting or lockout, profile and password
+editing, e-mail invitations with RSVP, linking participants to registered users, overlap warnings,
+calendar (ICS) export, image re-encoding/resizing, OpenAPI/Swagger docs, Flyway migrations with
+PostgreSQL, Docker Compose, and CI running both test suites.
 
 ## Security considerations
 
