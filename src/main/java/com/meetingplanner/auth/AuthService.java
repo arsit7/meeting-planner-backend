@@ -13,6 +13,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 @Service
 public class AuthService {
 
@@ -21,11 +23,14 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    /** Checked when the e-mail is unknown, so both failed-login paths take one BCrypt comparison. */
+    private final String unknownUserHash;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.unknownUserHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
     @Transactional
@@ -41,10 +46,12 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
-        // Same message for unknown e-mail and wrong password to avoid account enumeration.
-        User user = userRepository.findByEmail(Emails.normalize(request.email()))
-                .orElseThrow(() -> ApiException.unauthorized(INVALID_CREDENTIALS));
-        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        // Unknown e-mail and wrong password get the same message and the same BCrypt cost, so neither the
+        // response nor its timing reveals which e-mails have accounts.
+        User user = userRepository.findByEmail(Emails.normalize(request.email())).orElse(null);
+        String hash = user != null ? user.getPasswordHash() : unknownUserHash;
+        boolean passwordMatches = passwordEncoder.matches(request.password(), hash);
+        if (user == null || !passwordMatches) {
             throw ApiException.unauthorized(INVALID_CREDENTIALS);
         }
         return toAuthResponse(user);

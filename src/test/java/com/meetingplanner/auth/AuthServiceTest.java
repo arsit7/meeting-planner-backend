@@ -24,7 +24,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -104,6 +107,18 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@example.com", "secret123")))
                 .isInstanceOf(ApiException.class)
                 .hasMessage(AuthService.INVALID_CREDENTIALS);
+    }
+
+    @Test
+    void loginWithUnknownEmailStillRunsAPasswordCheck() {
+        // Without this, an unknown e-mail would fail faster than a wrong password and reveal which accounts exist.
+        PasswordEncoder encoder = spy(new BCryptPasswordEncoder(4));
+        AuthService service = new AuthService(userRepository, encoder, jwtService);
+        when(userRepository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.login(new LoginRequest("nobody@example.com", "secret123")))
+                .hasMessage(AuthService.INVALID_CREDENTIALS);
+        verify(encoder).matches(eq("secret123"), startsWith("$2a$"));
     }
 
     private static User withId(User user, Long id) {
