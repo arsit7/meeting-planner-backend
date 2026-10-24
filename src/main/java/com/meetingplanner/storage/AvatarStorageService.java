@@ -15,6 +15,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -60,7 +61,7 @@ public class AvatarStorageService {
                     "Image must be at most " + (maxBytes / (1024 * 1024)) + " MB");
         }
         String declaredType = file.getContentType();
-        if (declaredType == null || !ALLOWED_CONTENT_TYPES.contains(declaredType.toLowerCase())) {
+        if (declaredType == null || !ALLOWED_CONTENT_TYPES.contains(declaredType.toLowerCase(Locale.ROOT))) {
             throw new ApiException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
                     "Only PNG, JPEG, GIF or WebP images are allowed");
         }

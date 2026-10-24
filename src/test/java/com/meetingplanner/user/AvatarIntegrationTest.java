@@ -5,6 +5,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
+import java.nio.file.Path;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -15,6 +17,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class AvatarIntegrationTest extends IntegrationTestSupport {
 
+    /** app.storage.avatar-dir in the test configuration. */
+    private static final Path AVATAR_DIR = Path.of("target/test-uploads/avatars");
     private static final byte[] PNG_BYTES =
             {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 1, 2, 3};
 
@@ -42,6 +46,23 @@ class AvatarIntegrationTest extends IntegrationTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "image/png"))
                 .andExpect(content().bytes(PNG_BYTES));
+    }
+
+    @Test
+    void replacingTheAvatarDeletesTheOldFileOnceSaved() throws Exception {
+        mockMvc.perform(withToken(multipart("/api/users/me/avatar")
+                        .file(new MockMultipartFile("file", "first.png", "image/png", PNG_BYTES)), token))
+                .andExpect(status().isOk());
+        String first = userRepository.findByEmail("alice@example.com").orElseThrow().getProfileImagePath();
+
+        mockMvc.perform(withToken(multipart("/api/users/me/avatar")
+                        .file(new MockMultipartFile("file", "second.png", "image/png", PNG_BYTES)), token))
+                .andExpect(status().isOk());
+        String second = userRepository.findByEmail("alice@example.com").orElseThrow().getProfileImagePath();
+
+        assertThat(second).isNotEqualTo(first);
+        assertThat(AVATAR_DIR.resolve(first)).doesNotExist();
+        assertThat(AVATAR_DIR.resolve(second)).exists();
     }
 
     @Test

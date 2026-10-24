@@ -6,6 +6,8 @@ import com.meetingplanner.storage.AvatarStorageService.StoredImage;
 import com.meetingplanner.user.dto.UserResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
@@ -31,8 +33,21 @@ public class UserService {
         String stored = storage.store(file);
         user.setProfileImagePath(stored);
         userRepository.saveAndFlush(user);
-        storage.deleteQuietly(previous);
+        deleteUnusedFileAfterTransaction(previous, stored);
         return UserResponse.from(user);
+    }
+
+    /**
+     * Files aren't transactional, so clean up only once the outcome is known: after a commit the old avatar
+     * is no longer referenced; after a rollback the new one never was.
+     */
+    private void deleteUnusedFileAfterTransaction(String previous, String stored) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                storage.deleteQuietly(status == STATUS_COMMITTED ? previous : stored);
+            }
+        });
     }
 
     @Transactional(readOnly = true)
