@@ -138,6 +138,11 @@ class AuthIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
+    void h2ConsoleIsNotExposedByDefault() throws Exception {
+        mockMvc.perform(get("/h2-console")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void securityHeadersArePresent() throws Exception {
         mockMvc.perform(get("/api/meetings"))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))

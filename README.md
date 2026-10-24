@@ -17,7 +17,7 @@ The React frontend lives in the companion repository **`Meeting Planner-front-en
 - Authorization: only the organizer can modify a meeting; invited users (participant e-mail matches their
   account e-mail) get read-only access; everyone else gets `404`
 - Consistent JSON error format with field-level validation messages
-- 57 automated tests (unit + integration)
+- 58 automated tests (unit + integration)
 
 ## Technology stack
 
@@ -220,11 +220,11 @@ touch `./data` and don't need `JWT_SECRET` set.
 | `JwtServiceTest`            | Unit        | Valid/expired/tampered/foreign-key tokens, missing or short secret        |
 | `MeetingServiceTest`        | Unit        | Creation, duplicate participants, owner/invitee/stranger rules            |
 | `AvatarStorageServiceTest`  | Unit        | Valid upload, bad type, spoofed bytes, oversize, empty, path traversal    |
-| `AuthIntegrationTest`       | Integration | Signup/login over HTTP, BCrypt hash in DB, 401 on missing/forged/expired token, CORS, security headers |
+| `AuthIntegrationTest`       | Integration | Signup/login over HTTP, BCrypt hash in DB, 401 on missing/forged/expired token, CORS, security headers, H2 console off by default |
 | `MeetingIntegrationTest`    | Integration | CRUD, validation (blank title, end ≤ start, bad e-mail), participants, ownership enforcement |
 | `AvatarIntegrationTest`     | Integration | Upload + download, invalid type, oversize, auth required                  |
 
-Last run: **57 tests, 0 failures, 0 errors** (`BUILD SUCCESS`).
+Last run: **58 tests, 0 failures, 0 errors** (`BUILD SUCCESS`).
 
 ## H2 database behavior
 
@@ -232,9 +232,25 @@ Last run: **57 tests, 0 failures, 0 errors** (`BUILD SUCCESS`).
   (git-ignored).
 - Schema is managed by Hibernate (`ddl-auto=update`). To start fresh, stop the app and delete the `data/`
   folder.
-- The H2 web console is **disabled** by default. To inspect data locally, add
-  `spring.h2.console.enabled=true` to `config/application-local.properties` and permit `/h2-console/**`
-  in `SecurityConfig`. Never do this in a shared environment.
+- `meetingplanner.mv.db` is a binary H2 file, so a text editor can't show its contents. Windows also
+  locks it while the backend runs.
+- **Viewing the data:** the H2 web console is **disabled** by default. To use it locally, add this line
+  to the git-ignored `config/application-local.properties` and restart the backend:
+
+  ```properties
+  spring.h2.console.enabled=true
+  ```
+
+  Then open `http://localhost:8080/h2-console` and log in with:
+
+  | Field     | Value                                 |
+  |-----------|---------------------------------------|
+  | JDBC URL  | `jdbc:h2:file:./data/meetingplanner`  |
+  | User Name | `sa`                                  |
+  | Password  | *(leave empty)*                       |
+
+  Click a table on the left (`USERS`, `MEETINGS`, `PARTICIPANTS`) and press **Run**. The console only
+  accepts connections from the same computer. Never enable it in a shared environment.
 
 ## Local image storage
 

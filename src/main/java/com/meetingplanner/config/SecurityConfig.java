@@ -4,9 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.meetingplanner.common.ApiError;
 import com.meetingplanner.security.JwtAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.security.servlet.PathRequest;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -42,7 +45,24 @@ public class SecurityConfig {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Local debugging only: exposes the H2 web console when {@code spring.h2.console.enabled=true}
+     * (off by default). The console has its own JDBC login and only accepts local connections.
+     */
     @Bean
+    @Order(1)
+    @ConditionalOnProperty(name = "spring.h2.console.enabled", havingValue = "true")
+    public SecurityFilterChain h2ConsoleFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher(PathRequest.toH2Console())
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .csrf(AbstractHttpConfigurer::disable)
+                .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 // Stateless bearer-token API: no cookies or sessions, so CSRF protection is not applicable.
