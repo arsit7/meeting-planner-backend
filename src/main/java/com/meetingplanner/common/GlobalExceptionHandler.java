@@ -41,8 +41,9 @@ public class GlobalExceptionHandler {
         }
         ex.getBindingResult().getGlobalErrors()
                 .forEach(ge -> fieldErrors.putIfAbsent(ge.getObjectName(), ge.getDefaultMessage()));
-        ApiError body = new ApiError(Instant.now(), 400, "Bad Request", "Validation failed", fieldErrors);
-        return ResponseEntity.badRequest().body(body);
+        HttpStatus status = HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status).body(new ApiError(
+                Instant.now(), status.value(), status.getReasonPhrase(), "Validation failed", fieldErrors));
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
