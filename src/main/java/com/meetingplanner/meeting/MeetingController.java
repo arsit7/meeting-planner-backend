@@ -1,0 +1,76 @@
+package com.meetingplanner.meeting;
+
+import com.meetingplanner.meeting.dto.CreateMeetingRequest;
+import com.meetingplanner.meeting.dto.MeetingResponse;
+import com.meetingplanner.meeting.dto.MeetingSummaryResponse;
+import com.meetingplanner.meeting.dto.ParticipantRequest;
+import com.meetingplanner.meeting.dto.ParticipantResponse;
+import com.meetingplanner.meeting.dto.UpdateMeetingRequest;
+import com.meetingplanner.security.AuthUser;
+import com.meetingplanner.security.CurrentUser;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/meetings")
+public class MeetingController {
+
+    private final MeetingService meetingService;
+
+    public MeetingController(MeetingService meetingService) {
+        this.meetingService = meetingService;
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public MeetingResponse create(@CurrentUser AuthUser user, @Valid @RequestBody CreateMeetingRequest request) {
+        return meetingService.create(user, request);
+    }
+
+    @GetMapping
+    public List<MeetingSummaryResponse> list(@CurrentUser AuthUser user) {
+        return meetingService.listAccessible(user);
+    }
+
+    @GetMapping("/{id}")
+    public MeetingResponse get(@CurrentUser AuthUser user, @PathVariable Long id) {
+        return meetingService.get(user, id);
+    }
+
+    @PutMapping("/{id}")
+    public MeetingResponse update(@CurrentUser AuthUser user, @PathVariable Long id,
+                                  @Valid @RequestBody UpdateMeetingRequest request) {
+        return meetingService.update(user, id, request);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@CurrentUser AuthUser user, @PathVariable Long id) {
+        meetingService.delete(user, id);
+    }
+
+    @PostMapping("/{id}/participants")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ParticipantResponse addParticipant(@CurrentUser AuthUser user, @PathVariable Long id,
+                                              @Valid @RequestBody ParticipantRequest request) {
+        return meetingService.addParticipant(user, id, request);
+    }
+
+    @DeleteMapping("/{id}/participants/{participantId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeParticipant(@CurrentUser AuthUser user, @PathVariable Long id,
+                                  @PathVariable Long participantId) {
+        meetingService.removeParticipant(user, id, participantId);
+    }
+}

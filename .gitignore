@@ -1,0 +1,34 @@
+# Build output
+target/
+*.class
+
+# Local H2 database files
+data/
+*.mv.db
+*.trace.db
+*.lock.db
+
+# Uploaded user files
+uploads/
+
+# Local configuration / secrets
+.env
+.env.*
+config/application-local.properties
+application-local.properties
+*.pem
+*.key
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
